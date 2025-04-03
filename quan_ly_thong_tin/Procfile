@@ -1,1 +1,0 @@
-web: gunicorn quan_ly_thong_tin.wsgi
