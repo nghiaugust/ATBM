@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quản lý Thông Tin</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <style>
+      body { background-color: #f8f9fa; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; }
+      .container { margin-top: 30px; }
+      .sidebar, .main-content { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); height: calc(100vh - 60px); }
+      .sidebar { border-left: 5px solid #007bff; }
+      .main-content { border-left: 5px solid #28a745; padding: 0; }
+      .scrollable-content { max-height: calc(100vh - 60px); overflow-y: auto; padding: 25px; }
+      .info-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px; }
+      .info-text { flex: 1; max-width: calc(100% - 150px); word-wrap: break-word; white-space: pre-wrap; max-height: 100px; overflow-y: auto; margin-right: 10px; }
+      .action-buttons { flex-shrink: 0; width: 140px; text-align: right; }
+      .btn-custom { transition: all 0.3s; }
+      .btn-custom:hover { transform: translateY(-2px); }
+      .spinner { display: none; }
+      .user-area { text-align: center; }
+      .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1050; }
+      .btn-add { background-color: #28a745; border-color: #28a745; }
+      .btn-add:hover { background-color: #218838; border-color: #1e7e34; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="row g-4">
+        <div class="col-lg-4 col-md-5 sidebar">
+          <div id="userArea">
+            <h3 class="text-primary">Đăng nhập</h3>
+            <input type="text" id="username" class="form-control mb-3" placeholder="Username" />
+            <input type="password" id="password" class="form-control mb-3" placeholder="Password" />
+            <button class="btn btn-primary w-100 btn-custom" onclick="login()">Đăng nhập</button>
+            <p id="loginMessage" class="mt-2"></p>
+            <hr />
+            <h3 class="text-success">Đăng ký</h3>
+            <input type="text" id="regUsername" class="form-control mb-3" placeholder="Username" />
+            <input type="password" id="regPassword" class="form-control mb-3" placeholder="Password" />
+            <button class="btn btn-success w-100 btn-custom" onclick="register()">Đăng ký</button>
+            <p id="registerMessage" class="mt-2"></p>
+          </div>
+        </div>
+        <div class="col-lg-8 col-md-7 main-content">
+          <div class="scrollable-content">
+            <h2 class="mb-4 text-success">Quản lý Thông Tin</h2>
+            <h4>Thêm thông tin</h4>
+            <input type="text" id="tieuDe" class="form-control mb-3" placeholder="Tiêu đề" />
+            <input type="text" id="duLieu" class="form-control mb-3" placeholder="Dữ liệu" />
+            <button class="btn btn-add w-100 btn-custom mb-4 text-white" onclick="addInfo()">
+              <span class="spinner-border spinner-border-sm spinner" role="status"></span> Thêm
+            </button>
+            <hr />
+            <h4>Danh sách Thông Tin</h4>
+            <ul id="infoList" class="list-group"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="toast-container">
+      <div id="toastMessage" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="3000">
+        <div class="toast-header">
+          <strong class="me-auto">Thông báo</strong>
+          <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      const TOKEN_KEY = "authToken";
+      const API_BASE = "/thong_tin";
+      let currentUsername = localStorage.getItem("currentUsername") || null;
+      let currentPassword = null;
+
+      function toggleSpinner(show) {
+        document.querySelector(".spinner").style.display = show ? "inline-block" : "none";
+      }
+
+      function showToast(message, type) {
+        const toast = document.getElementById("toastMessage");
+        const toastBody = toast.querySelector(".toast-body");
+        toastBody.textContent = message;
+        toast.className = `toast ${type === "success" ? "bg-success text-white" : "bg-danger text-white"}`;
+        const bsToast = new bootstrap.Toast(toast);
+        bsToast.show();
+      }
+
+      function checkLoginStatus() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const userArea = document.getElementById("userArea");
+        if (token) {
+          currentUsername = localStorage.getItem("currentUsername") || currentUsername || "Người dùng";
+          userArea.innerHTML = `
+            <div class="user-area">
+              <h3 class="text-primary">Chào, ${currentUsername}</h3>
+              <button class="btn btn-primary w-100 btn-custom mb-2" onclick="openChat()">Chat Người Dùng</button>
+              <button class="btn btn-danger w-100 btn-custom mb-2" onclick="logout()">Đăng xuất</button>
+              <div class="input-group mb-2">
+                <input type="password" id="passwordInput" class="form-control" placeholder="Nhập password..." />
+                <button class="btn btn-outline-primary btn-custom" onclick="savePassword()">Lưu</button>
+              </div>
+              <div id="passwordStatus" class="text-muted small mt-1">${currentPassword ? "Password tồn tại" : "Password không tồn tại"}</div>
+            </div>`;
+          loadInfo();
+        } else {
+          userArea.innerHTML = `
+            <h3 class="text-primary">Đăng nhập</h3>
+            <input type="text" id="username" class="form-control mb-3" placeholder="Username">
+            <input type="password" id="password" class="form-control mb-3" placeholder="Password">
+            <button class="btn btn-primary w-100 btn-custom" onclick="login()">Đăng nhập</button>
+            <p id="loginMessage" class="mt-2"></p>
+            <hr>
+            <h3 class="text-success">Đăng ký</h3>
+            <input type="text" id="regUsername" class="form-control mb-3" placeholder="Username">
+            <input type="password" id="regPassword" class="form-control mb-3" placeholder="Password">
+            <button class="btn btn-success w-100 btn-custom" onclick="register()">Đăng ký</button>
+            <p id="registerMessage" class="mt-2"></p>`;
+          document.getElementById("infoList").innerHTML = "";
+        }
+      }
+
+      async function login() {
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value.trim();
+        const loginMessage = document.getElementById("loginMessage");
+
+        if (!username || !password) {
+          loginMessage.className = "text-danger";
+          loginMessage.innerText = "Vui lòng nhập đầy đủ thông tin!";
+          return;
+        }
+
+        try {
+          toggleSpinner(true);
+          const response = await fetch("/user/login/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await response.json();
+          toggleSpinner(false);
+
+          if (data.token) {
+            localStorage.setItem(TOKEN_KEY, data.token);
+            localStorage.setItem("currentUsername", username);
+            currentUsername = username;
+            currentPassword = password;
+            checkLoginStatus();
+            showToast("✅ Đăng nhập thành công!", "success");
+            loadInfo();
+          } else {
+            loginMessage.className = "text-danger";
+            loginMessage.innerText = data.error || "Sai tài khoản hoặc mật khẩu";
+          }
+        } catch (error) {
+          toggleSpinner(false);
+          loginMessage.className = "text-danger";
+          loginMessage.innerText = "Lỗi kết nối!";
+        }
+      }
+
+      async function register() {
+        const username = document.getElementById("regUsername").value.trim();
+        const password = document.getElementById("regPassword").value.trim();
+        const registerMessage = document.getElementById("registerMessage");
+
+        if (!username || !password) {
+          registerMessage.className = "text-danger";
+          registerMessage.innerText = "Vui lòng nhập đầy đủ thông tin!";
+          return;
+        }
+
+        try {
+          toggleSpinner(true);
+          const response = await fetch("/user/register/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await response.json();
+          toggleSpinner(false);
+
+          if (data.token) {
+            localStorage.setItem(TOKEN_KEY, data.token);
+            localStorage.setItem("currentUsername", username);
+            currentUsername = username;
+            currentPassword = password;
+            checkLoginStatus();
+            showToast("✅ Đăng ký thành công!", "success");
+            loadInfo();
+          } else {
+            registerMessage.className = "text-danger";
+            registerMessage.innerText = data.error || "Lỗi đăng ký! Vui lòng thử lại.";
+          }
+        } catch (error) {
+          toggleSpinner(false);
+          registerMessage.className = "text-danger";
+          registerMessage.innerText = "Lỗi kết nối!";
+        }
+      }
+
+      async function logout() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          showToast("❌ Bạn chưa đăng nhập!", "error");
+          return;
+        }
+
+        try {
+          const response = await fetch("/user/logout/", {
+            method: "POST",
+            headers: { Authorization: "Token " + token },
+          });
+
+          if (response.status === 200) {
+            localStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem("currentUsername");
+            currentUsername = null;
+            currentPassword = null;
+            checkLoginStatus();
+            showToast("✅ Đăng xuất thành công!", "success");
+            setTimeout(() => location.reload(), 1000);
+          } else {
+            showToast("❌ Lỗi khi đăng xuất!", "error");
+          }
+        } catch (error) {
+          showToast("🚨 Lỗi kết nối!", "error");
+        }
+      }
+
+      function savePassword() {
+        const passwordInput = document.getElementById("passwordInput").value.trim();
+        const passwordStatus = document.getElementById("passwordStatus");
+        if (passwordInput) {
+          currentPassword = passwordInput;
+          passwordStatus.textContent = "Password tồn tại";
+          passwordStatus.className = "text-success small mt-1";
+          showToast("✅ Đã lưu password!", "success");
+          loadInfo();
+        } else {
+          currentPassword = null;
+          passwordStatus.textContent = "Password không tồn tại";
+          passwordStatus.className = "text-muted small mt-1";
+          showToast("❌ Vui lòng nhập password trước khi lưu!", "error");
+        }
+      }
+
+      async function loadInfo() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const headers = { "Content-Type": "application/json" };
+        const body = {};
+
+        if (token) {
+          headers["Authorization"] = "Token " + token;
+          if (currentPassword) {
+            body.password = currentPassword;
+          }
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/list/`, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          const list = document.getElementById("infoList");
+          list.innerHTML = "";
+          data.forEach((item) => {
+            const li = document.createElement("li");
+            li.className = "list-group-item info-item";
+            li.innerHTML = `
+              <div class="info-text"><strong>${item.tieu_de}</strong>: ${item.du_lieu}</div>
+              <div class="action-buttons">
+                <button class="btn btn-sm btn-warning me-2" onclick="editInfo(${item.id}, '${item.tieu_de}', '${item.du_lieu}')">Sửa</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteInfo(${item.id})">Xóa</button>
+              </div>`;
+            list.appendChild(li);
+          });
+        } catch (error) {
+          console.error("Lỗi tải danh sách:", error);
+          showToast("❌ Lỗi tải danh sách thông tin!", "error");
+        }
+      }
+
+      async function addInfo() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          showToast("❌ Bạn chưa đăng nhập!", "error");
+          return;
+        }
+
+        if (!currentPassword) {
+          showToast("❌ Không có password hợp lệ để thêm thông tin!", "error");
+          return;
+        }
+
+        const tieuDe = document.getElementById("tieuDe").value.trim();
+        const duLieu = document.getElementById("duLieu").value.trim();
+
+        if (!tieuDe || !duLieu) {
+          showToast("❌ Vui lòng nhập đầy đủ tiêu đề và dữ liệu!", "error");
+          return;
+        }
+
+        try {
+          toggleSpinner(true);
+          await fetch(`${API_BASE}/create/`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Token " + token,
+            },
+            body: JSON.stringify({
+              tieu_de: tieuDe,
+              du_lieu: duLieu,
+              password: currentPassword,
+            }),
+          });
+          toggleSpinner(false);
+          document.getElementById("tieuDe").value = "";
+          document.getElementById("duLieu").value = "";
+          loadInfo();
+          showToast("✅ Thêm thông tin thành công!", "success");
+        } catch (error) {
+          toggleSpinner(false);
+          showToast("❌ Lỗi thêm thông tin!", "error");
+        }
+      }
+
+      async function deleteInfo(id) {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          showToast("❌ Bạn chưa đăng nhập!", "error");
+          return;
+        }
+
+        if (!confirm("Bạn có chắc muốn xóa?")) return;
+
+        try {
+          await fetch(`${API_BASE}/delete/${id}/`, {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Token " + token,
+            },
+          });
+          loadInfo();
+          showToast("✅ Xóa thông tin thành công!", "success");
+        } catch (error) {
+          showToast("❌ Lỗi xóa thông tin!", "error");
+        }
+      }
+
+      function editInfo(id, tieuDe, duLieu) {
+        const newTieuDe = prompt("Nhập tiêu đề mới:", tieuDe);
+        const newDuLieu = prompt("Nhập dữ liệu mới:", duLieu);
+
+        if (newTieuDe && newDuLieu) {
+          updateInfo(id, newTieuDe, newDuLieu);
+        }
+      }
+
+      async function updateInfo(id, tieuDe, duLieu) {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          showToast("❌ Bạn chưa đăng nhập!", "error");
+          return;
+        }
+
+        try {
+          await fetch(`${API_BASE}/update/${id}/`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Token " + token,
+            },
+            body: JSON.stringify({
+              tieu_de: tieuDe,
+              du_lieu: duLieu,
+              password: currentPassword,
+            }),
+          });
+          loadInfo();
+          showToast("✅ Cập nhật thông tin thành công!", "success");
+        } catch (error) {
+          showToast("❌ Lỗi cập nhật thông tin!", "error");
+        }
+      }
+
+      function openChat() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+          showToast("❌ Bạn phải đăng nhập để mở chat!", "error");
+          return;
+        }
+        window.open("/chat/user-chat/", "_blank");
+      }
+
+      checkLoginStatus();
+      loadInfo();
+    </script>
+  </body>
+</html>

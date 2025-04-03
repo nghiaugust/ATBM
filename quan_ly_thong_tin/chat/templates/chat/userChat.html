@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat Người Dùng</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; /* Loại bỏ margin mặc định của body */
+        }
+        .container {
+            margin-top: 30px;
+            max-width: 100%; /* Tận dụng chiều rộng tối đa */
+            padding-right: 220px; /* Để lại khoảng trống cho ô danh sách người dùng */
+        }
+        .sidebar, .main-content {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            height: calc(100vh - 60px);
+        }
+        .sidebar {
+            border-left: 5px solid #007bff;
+        }
+        .main-content {
+            border-left: 5px solid #28a745;
+            padding: 0;
+        }
+        .user-list-sidebar {
+            background: white;
+            padding: 15px;
+            border-left: 5px solid #007bff;
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+            position: fixed;
+            right: 0;
+            top: 30px; /* Đảm bảo căn đầu trang cùng container */
+            width: 200px;
+            border-radius: 15px 0 0 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            z-index: 1000; /* Đảm bảo nằm trên các phần khác */
+        }
+        .scrollable-content {
+            max-height: calc(100vh - 60px);
+            overflow-y: auto;
+            padding: 25px;
+            position: relative;
+        }
+        .chat-area {
+            height: calc(100vh - 200px);
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f1f1f1;
+            border-radius: 10px;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .message.sent {
+            background-color: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .message.received {
+            background-color: #e9ecef;
+            text-align: left;
+        }
+        .btn-custom {
+            transition: all 0.3s;
+        }
+        .btn-custom:hover {
+            transform: translateY(-2px);
+        }
+        .user-list-item:hover {
+            background-color: #f1f1f1;
+            cursor: pointer;
+        }
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+        .crypto-area {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+        }
+        .key-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .key-display .btn-copy-aes {
+            height: 38px;
+            width: 70px;
+            font-size: 14px;
+        }
+        #loadingOverlay {
+          position: absolute;
+          top: 10px;
+          right: 20px;
+          z-index: 1001;
+        }
+        .d-none {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row g-4">
+            <div class="col-lg-4 col-md-5 sidebar">
+                <div id="userArea">
+                    <!-- Nội dung sẽ được cập nhật bởi JavaScript -->
+                </div>
+            </div>
+            <div class="col-lg-8 col-md-7 main-content">
+                <div class="scrollable-content">
+                    <h2 class="mb-4 text-success">Chat Người Dùng</h2>
+
+                    <div id="loadingOverlay" class="d-none mt-2 text-center">
+                      <div class="spinner-border text-primary" role="status">
+                          <span class="visually-hidden">Loading...</span>
+                      </div>
+                      <p class="mt-1">Đang mã hóa để gửi...</p>
+                    </div>
+
+                    <div id="chatArea" class="chat-area"></div>
+                    <div class="input-group mt-3">
+                      <input type="text" id="messageInput" class="form-control" placeholder="Nhập tin nhắn..." />
+                      <button class="btn btn-primary btn-custom" onclick="sendMessage()">Gửi</button>
+                      <button class="btn btn-success btn-custom" onclick="sendEncryptedMessage()">Gửi có mã hóa</button>
+                  </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Ô dọc nhỏ bên phải cho danh sách người dùng - đặt ngoài container -->
+    <div class="user-list-sidebar">
+        <h3 class="text-success">Danh sách Người Dùng</h3>
+        <ul id="userList" class="list-group"></ul>
+    </div>
+    <div class="toast-container">
+        <div id="toastMessage" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="3000">
+            <div class="toast-header">
+                <strong class="me-auto">Thông báo</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const SERVER_IP = "192.168.1.6";
+        const TOKEN_KEY = "authToken";
+        let currentUsername = localStorage.getItem("currentUsername") || null; // Lấy username từ localStorage khi khởi tạo
+        let socket = null;
+        let savedPublicKey = null;
+        let savedAESKey = null;
+
+        function showToast(message, type) {
+            const toast = document.getElementById("toastMessage");
+            const toastBody = toast.querySelector(".toast-body");
+            toastBody.textContent = message;
+            toast.className = `toast ${type === "success" ? "bg-success text-white" : "bg-danger text-white"}`;
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+        }
+
+        function checkLoginStatus() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const userArea = document.getElementById("userArea");
+            if (token) {
+                currentUsername = localStorage.getItem("currentUsername") || currentUsername || "Người dùng"; // Đọc lại từ localStorage
+                userArea.innerHTML = `
+                    <div class="user-area">
+                        <h3 class="text-primary">Chào, ${currentUsername}</h3>
+                        <button class="btn btn-danger w-100 btn-custom" onclick="logout()">Đăng xuất</button>
+                        <div class="crypto-area">
+                            <h5 class="text-info">Mã hóa RSA</h5>
+                            <button class="btn btn-primary btn-custom w-100 mb-2" onclick="generateRSAKeys()">Tự sinh cặp khóa RSA</button>
+                            <div class="input-group mb-2">
+                                <input type="text" id="rsaPublicKeyInput" class="form-control key-display" placeholder="Nhập khóa công khai RSA..." />
+                                <button class="btn btn-outline-secondary" onclick="savePublicKey()">Lưu</button>
+                                <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('rsaPublicKeyInput').value)">Copy</button>
+                            </div>
+                            <button class="btn btn-success btn-custom w-100 mb-2" onclick="generateAESKey()">Tự sinh khóa AES</button>
+                            <div id="aesKey" class="key-display mb-2"></div>
+                            <button class="btn btn-warning btn-custom w-100 mb-2" onclick="encryptAESKey()">Mã hóa khóa AES</button>
+                            <div class="input-group mb-2">
+                                <input type="text" id="encryptedAESInput" class="form-control" placeholder="Nhập chuỗi AES đã mã hóa..." />
+                                <button class="btn btn-info btn-custom" onclick="decryptAESKey()">Giải mã AES</button>
+                            </div>
+                            <div class="input-group mb-2">
+                                <input type="text" id="aesKeyInput" class="form-control" placeholder="Nhập khóa AES..." />
+                                <button class="btn btn-outline-primary btn-custom" onclick="saveAESKey()">Lưu</button>
+                            </div>
+                            <div id="aesKeyStatus" class="text-muted small mt-1">Không có key mã AES</div>
+                        </div>
+                    </div>`;
+                loadUserList();
+                connectWebSocket();
+            } else {
+                userArea.innerHTML = `
+                    <h3 class="text-primary">Đăng nhập</h3>
+                    <input type="text" id="username" class="form-control mb-3" placeholder="Username">
+                    <input type="password" id="password" class="form-control mb-3" placeholder="Password">
+                    <button class="btn btn-primary w-100 btn-custom" onclick="login()">Đăng nhập</button>
+                    <p id="loginMessage" class="mt-2"></p>
+                    <hr />
+                    <h3 class="text-success">Đăng ký</h3>
+                    <input type="text" id="regUsername" class="form-control mb-3" placeholder="Username">
+                    <input type="password" id="regPassword" class="form-control mb-3" placeholder="Password">
+                    <button class="btn btn-success w-100 btn-custom" onclick="register()">Đăng ký</button>
+                    <p id="registerMessage" class="mt-2"></p>`;
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const loginMessage = document.getElementById("loginMessage");
+
+            if (!username || !password) {
+                loginMessage.className = "text-danger";
+                loginMessage.innerText = "Vui lòng nhập đầy đủ thông tin!";
+                return;
+            }
+
+            try {
+                const response = await fetch("/user/login/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await response.json();
+
+                if (data.token) {
+                    localStorage.setItem(TOKEN_KEY, data.token);
+                    currentUsername = username;
+                    checkLoginStatus();
+                    showToast("✅ Đăng nhập thành công!", "success");
+                } else {
+                    loginMessage.className = "text-danger";
+                    loginMessage.innerText = data.error || "Sai tài khoản hoặc mật khẩu";
+                }
+            } catch (error) {
+                loginMessage.className = "text-danger";
+                loginMessage.innerText = "Lỗi kết nối!";
+            }
+        }
+
+        async function register() {
+            const username = document.getElementById("regUsername").value.trim();
+            const password = document.getElementById("regPassword").value.trim();
+            const registerMessage = document.getElementById("registerMessage");
+
+            if (!username || !password) {
+                registerMessage.className = "text-danger";
+                registerMessage.innerText = "Vui lòng nhập đầy đủ thông tin!";
+                return;
+            }
+
+            try {
+                const response = await fetch("/user/register/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await response.json();
+
+                if (data.token) {
+                    localStorage.setItem(TOKEN_KEY, data.token);
+                    currentUsername = username;
+                    checkLoginStatus();
+                    showToast("✅ Đăng ký thành công!", "success");
+                } else {
+                    registerMessage.className = "text-danger";
+                    registerMessage.innerText = data.error || "Lỗi đăng ký! Vui lòng thử lại.";
+                }
+            } catch (error) {
+                registerMessage.className = "text-danger";
+                registerMessage.innerText = "Lỗi kết nối!";
+            }
+        }
+
+        async function logout() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token) {
+                showToast("❌ Bạn chưa đăng nhập!", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch("/user/logout/", {
+                    method: "POST",
+                    headers: { "Authorization": "Token " + token },
+                });
+
+                if (response.status === 200) {
+                    localStorage.removeItem(TOKEN_KEY);
+                    currentUsername = null;
+                    if (socket) socket.close();
+                    checkLoginStatus();
+                    document.getElementById("chatArea").innerHTML = "";
+                    showToast("✅ Đăng xuất thành công!", "success");
+                } else {
+                    showToast("❌ Lỗi khi đăng xuất!", "error");
+                }
+            } catch (error) {
+                showToast("🚨 Lỗi kết nối!", "error");
+            }
+        }
+
+        async function loadUserList() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            try {
+                const response = await fetch("/user/list/", {
+                    method: "GET",
+                    headers: { "Authorization": "Token " + token },
+                });
+                const users = await response.json();
+                const userList = document.getElementById("userList");
+                userList.innerHTML = "";
+                users.forEach(user => {
+                    if (user.username !== currentUsername) {
+                        const li = document.createElement("li");
+                        li.className = "list-group-item user-list-item";
+                        li.innerText = user.username;
+                        userList.appendChild(li);
+                    }
+                });
+            } catch (error) {
+                showToast("❌ Lỗi tải danh sách người dùng!", "error");
+            }
+        }
+
+        function connectWebSocket() {
+            //socket = new WebSocket(`ws://${window.location.host}/ws/socket-server/`);
+            socket = new WebSocket(`ws://${SERVER_IP}:8000/ws/socket-server/`);
+
+            socket.onopen = () => {
+                console.log("WebSocket connected");
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "chat") {
+                    displayMessage(data.message, data.username === currentUsername);
+                }
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket disconnected");
+            };
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById("messageInput");
+            const message = messageInput.value.trim();
+
+            if (!message) {
+                showToast("❌ Vui lòng nhập tin nhắn!", "error");
+                return;
+            }
+
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showToast("❌ Chưa kết nối WebSocket!", "error");
+                return;
+            }
+
+            const payload = {
+                message: `${currentUsername}: ${message}`,
+                username: currentUsername
+            };
+            socket.send(JSON.stringify(payload));
+            messageInput.value = "";
+        }
+
+        async function displayMessage(message, isSent) {
+          const chatArea = document.getElementById("chatArea");
+          const div = document.createElement("div");
+          div.className = `message ${isSent ? "sent" : "received"}`;
+      
+          if (message.includes("[ENCRYPTED]") && savedAESKey) {
+              // Trích xuất phần mã hóa từ tin nhắn
+              const encryptedPart = message.split("[ENCRYPTED]")[1].trim();
+              div.style.backgroundColor = isSent ? "#28a745" : "#d4edda"; // Màu cho tin nhắn mã hóa
+              div.title = "Tin nhắn đã được mã hóa";
+      
+              // Giải mã tự động
+              const decryptedMessage = await decryptMessage(encryptedPart);
+              div.innerText = decryptedMessage;
+      
+              if (decryptedMessage.includes("Không thể giải mã") || decryptedMessage.includes("Lỗi kết nối")) {
+                  div.style.backgroundColor = "#ffc107"; // Màu vàng nếu không giải mã được
+                  div.title = "Không thể giải mã với khóa AES hiện tại";
+              }
+          } else if (message.includes("[ENCRYPTED]") && !savedAESKey) {
+              div.innerText = message;
+              div.style.backgroundColor = "#ffc107"; // Màu vàng nếu không có khóa
+              div.title = "Không có khóa AES để giải mã";
+          } else {
+              div.innerText = message;
+          }
+      
+          chatArea.appendChild(div);
+          chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        async function generateRSAKeys() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            try {
+                const response = await fetch("/chat/generate-rsa/", {
+                    method: "GET",
+                    headers: { "Authorization": "Token " + token },
+                });
+                const data = await response.json();
+                if (data.public_key) {
+                    document.getElementById("rsaPublicKeyInput").value = data.public_key;
+                    showToast("✅ " + data.message, "success");
+                } else {
+                    showToast("❌ " + data.error, "error");
+                }
+            } catch (error) {
+                showToast("❌ Lỗi kết nối!", "error");
+            }
+        }
+
+        function savePublicKey() {
+            const publicKey = document.getElementById("rsaPublicKeyInput").value.trim();
+            if (publicKey) {
+                savedPublicKey = publicKey;
+                showToast("✅ Đã lưu khóa công khai!", "success");
+            } else {
+                showToast("❌ Chưa có khóa công khai để lưu!", "error");
+            }
+        }
+
+        async function generateAESKey() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            try {
+                const response = await fetch("/chat/generate-aes/", {
+                    method: "GET",
+                    headers: { "Authorization": "Token " + token },
+                });
+                const data = await response.json();
+                if (data.aes_key) {
+                    document.getElementById("aesKey").innerHTML = `
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control key-display" value="Khóa AES: ${data.aes_key}" readonly />
+                            <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText('${data.aes_key}')">Copy</button>
+                        </div>`;
+                    document.getElementById("aesKeyInput").value = data.aes_key; 
+                    savedAESKey = data.aes_key; 
+                    aesKeyStatus.textContent = "Có key mã AES"; 
+                    aesKeyStatus.className = "text-success small mt-1"; 
+                    showToast("✅ " + data.message, "success");
+                } else {
+                    showToast("❌ " + data.error, "error");
+                }
+            } catch (error) {
+                showToast("❌ Lỗi kết nối!", "error");
+            }
+        }
+
+        async function encryptAESKey() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!savedPublicKey) {
+                showToast("❌ Vui lòng lưu khóa công khai trước!", "error");
+                return;
+            }
+            const payload = { "public_key": savedPublicKey };
+            console.log("JSON gửi đi:", JSON.stringify(payload));
+            try {
+                const response = await fetch("/chat/encrypt-aes/", {
+                    method: "POST",
+                    headers: { 
+                        "Authorization": "Token " + token,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                console.log("Response từ server:", data);
+                if (response.ok && data.encrypted_aes_key) {
+                    document.getElementById("aesKey").innerHTML = `
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control key-display" value="Khóa AES mã hóa: ${data.encrypted_aes_key}" readonly />
+                            <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText('${data.encrypted_aes_key}')">Copy</button>
+                        </div>`;
+                    showToast("✅ " + data.message, "success");
+                } else {
+                    showToast("❌ " + (data.error || "Lỗi không xác định từ server"), "error");
+                    console.log("Lỗi từ server:", data);
+                }
+            } catch (error) {
+                showToast("❌ Lỗi kết nối!", "error");
+                console.error("Lỗi chi tiết:", error);
+            }
+        }
+
+        async function decryptAESKey() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const encryptedAES = document.getElementById("encryptedAESInput").value.trim();
+            if (!encryptedAES) {
+                showToast("❌ Vui lòng nhập chuỗi AES đã mã hóa!", "error");
+                return;
+            }
+
+            const payload = { "encrypted_aes": encryptedAES };
+            console.log("JSON gửi đi:", JSON.stringify(payload));
+            try {
+                const response = await fetch("/chat/decrypt-aes/", {
+                    method: "POST",
+                    headers: { 
+                        "Authorization": "Token " + token,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                console.log("Response từ server:", data);
+                if (response.ok && data.decrypted_aes_key) {
+                    document.getElementById("aesKey").innerHTML = `
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control key-display" value="Khóa AES giải mã: ${data.decrypted_aes_key}" readonly />
+                            <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText('${data.decrypted_aes_key}')">Copy</button>
+                        </div>`;
+                    showToast("✅ " + data.message, "success");
+                } else {
+                    showToast("❌ " + (data.error || "Lỗi không xác định từ server"), "error");
+                    console.log("Lỗi từ server:", data);
+                }
+            } catch (error) {
+                showToast("❌ Lỗi kết nối!", "error");
+                console.error("Lỗi chi tiết:", error);
+            }
+        }
+      // Hàm gửi tin nhắn mã hóa với loading
+      async function sendEncryptedMessage() {
+        const messageInput = document.getElementById("messageInput");
+        const message = messageInput.value.trim();
+
+        if (!message) {
+            showToast("❌ Vui lòng nhập tin nhắn!", "error");
+            return;
+        }
+
+        if (!savedAESKey) {
+            showToast("❌ Vui lòng lưu khóa AES trước!", "error");
+            return;
+        }
+
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            showToast("❌ Chưa kết nối WebSocket!", "error");
+            return;
+        }
+
+        showLoading(); // Hiển thị loading
+
+        try {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const response = await fetch("/chat/encrypt-message/", {
+                method: "POST",
+                headers: {
+                    "Authorization": "Token " + token,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    message: message,
+                    aes_key: savedAESKey
+                })
+            });
+            const data = await response.json();
+
+            hideLoading(); // Ẩn loading khi nhận phản hồi
+
+            if (data.encrypted_message) {
+                const payload = {
+                    message: `${currentUsername}: [ENCRYPTED] ${data.encrypted_message}`,
+                    username: currentUsername
+                };
+                socket.send(JSON.stringify(payload));
+                messageInput.value = "";
+                showToast("✅ Đã gửi tin nhắn mã hóa!", "success");
+            } else {
+                showToast("❌ " + data.error, "error");
+            }
+        } catch (error) {
+            hideLoading(); // Ẩn loading nếu có lỗi
+            showToast("❌ Lỗi kết nối!", "error");
+        }
+      }
+
+        // Hàm giải mã tin nhắn
+        async function decryptMessage(encryptedMessage) {
+          const token = localStorage.getItem(TOKEN_KEY);
+          try {
+              const response = await fetch("/chat/decrypt-message/", {
+                  method: "POST",
+                  headers: {
+                      "Authorization": "Token " + token,
+                      "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                      encrypted_message: encryptedMessage,
+                      aes_key: savedAESKey
+                  })
+              });
+              const data = await response.json();
+
+              if (data.decrypted_message) {
+                  return data.decrypted_message;
+              } else {
+                  return `[ENCRYPTED] ${encryptedMessage} (Không thể giải mã)`;
+              }
+          } catch (error) {
+              return `[ENCRYPTED] ${encryptedMessage} (Lỗi kết nối)`;
+          }
+        }
+        // Hàm hiển thị/ẩn loading
+        function showLoading() {
+          const loadingOverlay = document.getElementById("loadingOverlay");
+          loadingOverlay.classList.remove("d-none");
+        }
+
+        function hideLoading() {
+          const loadingOverlay = document.getElementById("loadingOverlay");
+          loadingOverlay.classList.add("d-none");
+        }
+
+        function saveAESKey() {
+          const aesKey = document.getElementById("aesKeyInput").value.trim();
+          const aesKeyStatus = document.getElementById("aesKeyStatus");
+          
+          if (aesKey) {
+              savedAESKey = aesKey;
+              aesKeyStatus.textContent = "Có key mã AES";
+              aesKeyStatus.className = "text-success small mt-1";
+              showToast("✅ Đã lưu khóa AES!", "success");
+          } else {
+              savedAESKey = null;
+              aesKeyStatus.textContent = "Không có key mã AES";
+              aesKeyStatus.className = "text-muted small mt-1";
+              showToast("❌ Vui lòng nhập khóa AES trước khi lưu!", "error");
+          }
+        }
+
+        checkLoginStatus();
+    </script>
+    {% comment %} <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'929839e9cbfc539b',t:'MTc0MzUxMTk2OC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script> {% endcomment %}
+</body>
+</html>
