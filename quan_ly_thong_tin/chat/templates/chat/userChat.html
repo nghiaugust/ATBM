@@ -351,7 +351,7 @@
         function connectWebSocket() {
             //socket = new WebSocket(`ws://${window.location.host}/ws/socket-server/`);
             //socket = new WebSocket(`ws://${SERVER_IP}:8000/ws/socket-server/`);
-            socket = new WebSocket(`ws://atbm.onrender.com/ws/socket-server/`);
+            socket = new WebSocket(`wss://atbm.onrender.com/ws/socket-server/`);
 
             socket.onopen = () => {
                 console.log("WebSocket connected");
